@@ -199,8 +199,8 @@ class TestLoc(Base):
             assert res == exp
 
 
-class TestLoc2:
-    # TODO: better name, just separating out things that rely on base class
+class TestLocBaseIndependent:
+    # Tests for loc that do not depend on subclassing Base
     @pytest.mark.parametrize(
         "msg, key",
         [
@@ -1143,9 +1143,6 @@ class TestLoc2:
         df.loc[0, "x"] = expected.loc[0, "x"]
         tm.assert_frame_equal(df, expected)
 
-    # TODO(ArrayManager) "split" path doesn't handle this case and gives wrong
-    # error message
-    @td.skip_array_manager_not_yet_implemented
     def test_loc_setitem_empty_append_raises(self):
         # GH6173, various appends to an empty dataframe
 
@@ -1217,8 +1214,7 @@ class TestLoc2:
         mask = (rng.hour == 9) & (rng.minute == 30)
 
         obj = DataFrame(np.random.randn(len(rng), 3), index=rng)
-        if frame_or_series is Series:
-            obj = obj[0]
+        obj = tm.get_obj(obj, frame_or_series)
 
         result = obj.loc[time(9, 30)]
         exp = obj.loc[mask]
@@ -2716,6 +2712,37 @@ def test_loc_getitem_multiindex_tuple_level():
 
     result2 = ser.loc[lev1[0], lev2[0], lev3[0]]
     assert result2 == 6
+
+
+def test_loc_getitem_nullable_index_with_duplicates():
+    # GH#34497
+    df = DataFrame(
+        data=np.array([[1, 2, 3, 4], [5, 6, 7, 8], [1, 2, np.nan, np.nan]]).T,
+        columns=["a", "b", "c"],
+        dtype="Int64",
+    )
+    df2 = df.set_index("c")
+    assert df2.index.dtype == "Int64"
+
+    res = df2.loc[1]
+    expected = Series([1, 5], index=df2.columns, dtype="Int64", name=1)
+    tm.assert_series_equal(res, expected)
+
+    # pd.NA and duplicates in an object-dtype Index
+    df2.index = df2.index.astype(object)
+    res = df2.loc[1]
+    tm.assert_series_equal(res, expected)
+
+
+@pytest.mark.parametrize("value", [300, np.uint16(300), np.int16(300)])
+def test_loc_setitem_uint8_upcast(value):
+    # GH#26049
+
+    df = DataFrame([1, 2, 3, 4], columns=["col1"], dtype="uint8")
+    df.loc[2, "col1"] = value  # value that can't be held in uint8
+
+    expected = DataFrame([1, 2, 300, 4], columns=["col1"], dtype="uint16")
+    tm.assert_frame_equal(df, expected)
 
 
 class TestLocSeries:
